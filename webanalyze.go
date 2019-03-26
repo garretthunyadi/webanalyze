@@ -32,8 +32,8 @@ func Analyze(url string, content *http.Response) ([]Match, error) {
 	buf.ReadFrom(content.Body)
 	body := []byte(buf.String())
 
-	// body := content.Body
 	cookies := content.Cookies()
+	headers := content.Header
 
 	var apps = make([]Match, 0)
 	var err error
