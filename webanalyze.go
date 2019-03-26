@@ -1,33 +1,16 @@
 package webanalyze
 
 import (
-	"bufio"
 	"bytes"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-var (
-	// AppDefs provides access to the unmarshalled apps.json file
-	AppDefs *AppsDefinition
-	timeout = 8 * time.Second
-)
-
-// Result type encapsulates the result information from a given host
-type Result struct {
-	Host     string        `json:"host"`
-	Matches  []Match       `json:"matches"`
-	Duration time.Duration `json:"duration"`
-	Error    error         `json:"error"`
-}
+// AppDefs provides access to the unmarshalled apps.json file
+var AppDefs *AppsDefinition
 
 // Match type encapsulates the App information from a match on a document
 type Match struct {
@@ -37,145 +20,25 @@ type Match struct {
 	Version string     `json:"version"`
 }
 
-// WebAnalyzer types holds an analyzation job
-type WebAnalyzer struct {
-	Results chan Result
-	jobs    chan *Job
-	wg      *sync.WaitGroup
-}
-
 func (m *Match) updateVersion(version string) {
 	if version != "" {
 		m.Version = version
 	}
 }
 
-// Init sets up all the workders, reads in the host data and returns the results channel or an error
-func Init(workers int, hosts io.Reader, appsFile string) (chan Result, error) {
-	wa, err := NewWebAnalyzer(workers, appsFile)
-	if err != nil {
-		return nil, err
-	}
-	// send hosts line by line to worker channel
-	go func(hosts io.Reader, wa *WebAnalyzer) {
-		scanner := bufio.NewScanner(hosts)
-		for scanner.Scan() {
-			url := scanner.Text()
-			wa.Schedule(NewOnlineJob(url, "", nil))
-		}
-		// wait for workers to finish, the close result channel to signal finish of scan
-		wa.close()
-	}(hosts, wa)
-	return wa.Results, nil
-}
+// Analyze do http request (if necessary) and analyze response
+func Analyze(url string, content *http.Response) ([]Match, error) {
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(content.Body)
+	body := []byte(buf.String())
 
-// NewWebAnalyzer returns an analyzer struct for an ongoing job, which may be
-// "fed" jobs via a method and returns them via a channel when complete.
-func NewWebAnalyzer(workers int, appsFile string) (*WebAnalyzer, error) {
-	wa := new(WebAnalyzer)
-	wa.Results = make(chan Result)
-	wa.jobs = make(chan *Job)
-	wa.wg = new(sync.WaitGroup)
-	if err := LoadApps(appsFile); err != nil {
-		return nil, err
-	}
-	// start workers
-	initWorker(workers, wa.jobs, wa.Results, wa.wg)
-	return wa, nil
-}
+	// body := content.Body
+	cookies := content.Cookies()
 
-// Schedule a job
-func (wa *WebAnalyzer) Schedule(job *Job) {
-	wa.jobs <- job
-}
-
-func (wa *WebAnalyzer) close() {
-	close(wa.jobs)
-	wa.wg.Wait()
-	close(wa.Results)
-}
-
-// start n worker and let them listen on channel c for hosts to scan
-func initWorker(count int, c chan *Job, results chan Result, wg *sync.WaitGroup) {
-	// start workers based on flag
-	for i := 0; i < count; i++ {
-		wg.Add(1)
-		go worker(c, results, wg)
-	}
-}
-
-// worker loops until channel is closed. processes a single host at once
-func worker(c chan *Job, results chan Result, wg *sync.WaitGroup) {
-	for job := range c {
-		if !strings.HasPrefix(job.URL, "http://") && !strings.HasPrefix(job.URL, "https://") {
-			job.URL = fmt.Sprintf("http://%s", job.URL)
-		}
-
-		t0 := time.Now()
-		result, err := Process(job)
-		t1 := time.Now()
-
-		res := Result{
-			Host:     job.URL,
-			Matches:  result,
-			Duration: t1.Sub(t0),
-			Error:    err,
-		}
-		results <- res
-	}
-	wg.Done()
-}
-
-func fetchHost(host string) (*http.Response, error) {
-	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}}
-
-	req, err := http.NewRequest("GET", host, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Accept", "*/*")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-// Process do http request (if necessary) and analyze response
-func Process(job *Job) ([]Match, error) {
 	var apps = make([]Match, 0)
 	var err error
 
-	var cookies []*http.Cookie
 	var cookiesMap = make(map[string]string)
-	var body []byte
-	var headers http.Header
-
-	// get response from host if allowed
-	if job.forceNotDownload {
-		body = job.Body
-		headers = job.Headers
-		cookies = job.Cookies
-	} else {
-		resp, err := fetchHost(job.URL)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to retrieve")
-		}
-
-		defer resp.Body.Close()
-
-		body, err = ioutil.ReadAll(resp.Body)
-		if err == nil {
-			headers = resp.Header
-			cookies = resp.Cookies()
-		}
-	}
-
 	for _, c := range cookies {
 		cookiesMap[c.Name] = c.Value
 	}
@@ -207,7 +70,7 @@ func Process(job *Job) ([]Match, error) {
 		findings.updateVersion(version)
 
 		// check url
-		if m, v := findMatches(job.URL, app.URLRegex); len(m) > 0 {
+		if m, v := findMatches(url, app.URLRegex); len(m) > 0 {
 			findings.Matches = append(findings.Matches, m...)
 			findings.updateVersion(v)
 		}
