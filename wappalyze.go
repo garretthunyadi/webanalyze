@@ -48,12 +48,14 @@ type AppsDefinition struct {
 	Cats map[string]Category `json:"categories"`
 }
 
+// AppRegexp ...
 type AppRegexp struct {
 	Name    string
 	Regexp  *regexp.Regexp
 	Version string
 }
 
+// FindInHeaders ...
 func (app *App) FindInHeaders(headers http.Header) (matches [][]string, version string) {
 	var v string
 
@@ -120,8 +122,8 @@ func DownloadFile(from, to string) error {
 	return err
 }
 
-// load apps from file
-func loadApps(filename string) error {
+// LoadApps from file
+func LoadApps(filename string) error {
 	f, err := os.Open(filename)
 	if err != nil {
 		return err

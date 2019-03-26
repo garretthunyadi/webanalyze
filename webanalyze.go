@@ -61,7 +61,7 @@ func Init(workers int, hosts io.Reader, appsFile string) (chan Result, error) {
 		scanner := bufio.NewScanner(hosts)
 		for scanner.Scan() {
 			url := scanner.Text()
-			wa.schedule(NewOnlineJob(url, "", nil))
+			wa.Schedule(NewOnlineJob(url, "", nil))
 		}
 		// wait for workers to finish, the close result channel to signal finish of scan
 		wa.close()
@@ -76,7 +76,7 @@ func NewWebAnalyzer(workers int, appsFile string) (*WebAnalyzer, error) {
 	wa.Results = make(chan Result)
 	wa.jobs = make(chan *Job)
 	wa.wg = new(sync.WaitGroup)
-	if err := loadApps(appsFile); err != nil {
+	if err := LoadApps(appsFile); err != nil {
 		return nil, err
 	}
 	// start workers
@@ -84,7 +84,8 @@ func NewWebAnalyzer(workers int, appsFile string) (*WebAnalyzer, error) {
 	return wa, nil
 }
 
-func (wa *WebAnalyzer) schedule(job *Job) {
+// Schedule a job
+func (wa *WebAnalyzer) Schedule(job *Job) {
 	wa.jobs <- job
 }
 
@@ -111,7 +112,7 @@ func worker(c chan *Job, results chan Result, wg *sync.WaitGroup) {
 		}
 
 		t0 := time.Now()
-		result, err := process(job)
+		result, err := Process(job)
 		t1 := time.Now()
 
 		res := Result{
@@ -145,8 +146,8 @@ func fetchHost(host string) (*http.Response, error) {
 	return resp, nil
 }
 
-// do http request and analyze response
-func process(job *Job) ([]Match, error) {
+// Process do http request (if necessary) and analyze response
+func Process(job *Job) ([]Match, error) {
 	var apps = make([]Match, 0)
 	var err error
 
