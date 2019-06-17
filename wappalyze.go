@@ -122,6 +122,11 @@ func DownloadFile(from, to string) error {
 	return err
 }
 
+// LoadAppsFromString ...
+func LoadAppsFromString(jsonContent string) error {
+	return loadAppsFromIOReader(strings.NewReader(jsonContent))
+}
+
 // LoadApps from file
 func LoadApps(filename string) error {
 	f, err := os.Open(filename)
@@ -130,8 +135,12 @@ func LoadApps(filename string) error {
 	}
 	defer f.Close()
 
-	dec := json.NewDecoder(f)
-	if err = dec.Decode(&AppDefs); err != nil {
+	return loadAppsFromIOReader(f)
+}
+
+func loadAppsFromIOReader(reader io.Reader) error {
+	dec := json.NewDecoder(reader)
+	if err := dec.Decode(&AppDefs); err != nil {
 		return err
 	}
 
@@ -158,8 +167,8 @@ func LoadApps(filename string) error {
 		AppDefs.Apps[key] = app
 
 	}
-
 	return nil
+
 }
 
 func compileNamedRegexes(from map[string]string) []AppRegexp {
